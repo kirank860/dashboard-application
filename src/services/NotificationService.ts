@@ -1,43 +1,60 @@
-import { toast } from 'react-toastify';
+import { Message } from '../types';
 
 class NotificationService {
-  private static hasPermission = false;
+  private static hasRequestedPermission = false;
 
-  static async requestPermission() {
-    if ('Notification' in window) {
-      const permission = await Notification.requestPermission();
-      this.hasPermission = permission === 'granted';
+  static async requestPermission(): Promise<void> {
+    // Check if we've already requested permission to avoid multiple prompts
+    if (this.hasRequestedPermission) {
+      return;
+    }
+
+    // Check if the browser supports notifications
+    if (!('Notification' in window)) {
+      console.log('This browser does not support notifications');
+      return;
+    }
+
+    try {
+      // Only request permission if it's not already granted or denied
+      if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+        const permission = await Notification.requestPermission();
+        this.hasRequestedPermission = true;
+        console.log('Notification permission:', permission);
+      }
+    } catch (error) {
+      console.log('Error requesting notification permission:', error);
     }
   }
 
-  static showNotification(title: string, options?: NotificationOptions) {
-    // Browser notification
-    if (this.hasPermission && 'Notification' in window) {
-      new Notification(title, options);
+  static async notify(message: Message, senderName: string): Promise<void> {
+    // Don't show notification if permission isn't granted
+    if (Notification.permission !== 'granted') {
+      return;
     }
 
-    // In-app notification
-    toast.info(title, {
-      position: 'bottom-right',
-      autoClose: 3000,
-      hideProgressBar: false,
-      closeOnClick: true,
-      pauseOnHover: true,
-      draggable: true,
-    });
-  }
+    try {
+      // Don't show notification if the window is focused
+      if (document.hasFocus()) {
+        return;
+      }
 
-  static async notify(message: { content: string; senderId: string; type: string }, senderName: string) {
-    if (!document.hasFocus()) {
-      const title = `New message from ${senderName}`;
-      const options: NotificationOptions = {
+      const notification = new Notification('New Message from ' + senderName, {
         body: message.type === 'text' ? message.content : `Sent a ${message.type}`,
-        icon: '/notification-icon.png',
-        badge: '/notification-badge.png',
-        tag: 'chat-message',
-      };
+        icon: '/notification-icon.png', // You can add an icon in your public folder
+        tag: 'chat-message', // This will replace any existing notification with the same tag
+      });
 
-      this.showNotification(title, options);
+      // Auto close notification after 5 seconds
+      setTimeout(() => notification.close(), 5000);
+
+      // Handle notification click
+      notification.onclick = () => {
+        window.focus();
+        notification.close();
+      };
+    } catch (error) {
+      console.log('Error showing notification:', error);
     }
   }
 }

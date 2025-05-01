@@ -39,7 +39,6 @@ import { keyframes } from '@mui/system';
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 import FilePreview from './FilePreview';
 import NotificationService from '../services/NotificationService';
-import { useSocket } from '../contexts/SocketContext';
 
 const messageAnimation = keyframes`
   from {
@@ -77,7 +76,6 @@ export const ChatRoom = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
-  const { socket } = useSocket();
   const [uploadProgress, setUploadProgress] = useState(0);
 
   const scrollToBottom = () => {
@@ -89,26 +87,28 @@ export const ChatRoom = () => {
   }, [messages]);
 
   useEffect(() => {
-    NotificationService.requestPermission();
+    const requestNotificationPermission = async () => {
+      try {
+        await NotificationService.requestPermission();
+      } catch (error) {
+        console.log('Error requesting notification permission:', error);
+      }
+    };
+
+    const handleUserInteraction = () => {
+      requestNotificationPermission();
+      document.removeEventListener('click', handleUserInteraction);
+      document.removeEventListener('keydown', handleUserInteraction);
+    };
+
+    document.addEventListener('click', handleUserInteraction);
+    document.addEventListener('keydown', handleUserInteraction);
+
+    return () => {
+      document.removeEventListener('click', handleUserInteraction);
+      document.removeEventListener('keydown', handleUserInteraction);
+    };
   }, []);
-
-  useEffect(() => {
-    if (socket) {
-      socket.on('message_status', ({ messageId, status }: MessageStatus) => {
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === messageId ? { ...msg, status } : msg
-          )
-        );
-      });
-
-      socket.on('new_message', (message: Message) => {
-        if (message.senderId !== user?.id) {
-          NotificationService.notify(message, message.senderName || 'User');
-        }
-      });
-    }
-  }, [socket, user?.id]);
 
   const handleSend = async () => {
     if (message.trim() || file) {
@@ -134,8 +134,7 @@ export const ChatRoom = () => {
             senderName: user?.username
           };
           
-          socket?.emit('send_message', newMessage);
-          setMessages((prev) => [...prev, newMessage]);
+          sendMessage(newMessage);
           setFile(null);
           setUploadProgress(0);
         } finally {
@@ -155,8 +154,7 @@ export const ChatRoom = () => {
           senderName: user?.username
         };
         
-        socket?.emit('send_message', newMessage);
-        setMessages((prev) => [...prev, newMessage]);
+        sendMessage(newMessage);
         setMessage('');
       }
     }
@@ -333,17 +331,18 @@ export const ChatRoom = () => {
             >
               <Box
                 sx={{
-                  maxWidth: { xs: '90%', sm: '70%' },
+                  maxWidth: { xs: '85%', sm: '70%' },
                   position: 'relative',
                 }}
               >
                 <Paper
                   elevation={0}
                   sx={{
-                    p: { xs: 1, sm: 1.5 },
+                    p: { xs: 1.5, sm: 2 },
                     bgcolor: msg.senderId === user?.id ? 'primary.main' : '#f5f5f5',
                     color: msg.senderId === user?.id ? '#fff' : 'inherit',
                     borderRadius: msg.senderId === user?.id ? '20px 20px 4px 20px' : '20px 20px 20px 4px',
+                    position: 'relative',
                   }}
                 >
                   {msg.type === 'text' && (
@@ -378,7 +377,7 @@ export const ChatRoom = () => {
                       <Typography variant="body2">{msg.content}</Typography>
                     </Box>
                   )}
-                  
+
                   <Box
                     sx={{
                       display: 'flex',
@@ -407,20 +406,30 @@ export const ChatRoom = () => {
                   </Box>
                 </Paper>
 
-                <IconButton
-                  size="small"
-                  onClick={(e) => handleMessageMenuOpen(e, msg.id)}
-                  sx={{
-                    position: 'absolute',
-                    right: msg.senderId === user?.id ? -30 : 'auto',
-                    left: msg.senderId === user?.id ? 'auto' : -30,
-                    top: 0,
-                    opacity: 0,
-                    '&:hover': { opacity: 1 },
-                  }}
-                >
-                  <MoreVertIcon fontSize="small" />
-                </IconButton>
+                {/* Message Options Button */}
+                {msg.senderId === user?.id && (
+                  <IconButton
+                    size="small"
+                    onClick={(e) => handleMessageMenuOpen(e, msg.id)}
+                    sx={{
+                      position: 'absolute',
+                      right: -8,
+                      bottom: -8,
+                      opacity: 0,
+                      backgroundColor: 'background.paper',
+                      boxShadow: 1,
+                      '&:hover': { 
+                        opacity: 1,
+                        backgroundColor: 'background.paper' 
+                      },
+                      '.MuiListItem-root:hover &': {
+                        opacity: 1
+                      }
+                    }}
+                  >
+                    <MoreVertIcon fontSize="small" />
+                  </IconButton>
+                )}
               </Box>
             </ListItem>
           ))}
@@ -444,9 +453,9 @@ export const ChatRoom = () => {
       <Box
         component="form"
         sx={{
-          p: { xs: 1, sm: 2 },
+          p: { xs: 1.5, sm: 2 },
           display: 'flex',
-          gap: { xs: 0.5, sm: 1 },
+          gap: { xs: 1, sm: 1.5 },
           alignItems: 'flex-end',
           bgcolor: '#fff',
           borderTop: '1px solid',
@@ -472,6 +481,7 @@ export const ChatRoom = () => {
           onClick={() => setShowEmojiPicker(!showEmojiPicker)}
           ref={emojiButtonRef}
           size="small"
+          sx={{ color: 'text.secondary' }}
         >
           <EmojiIcon />
         </IconButton>
@@ -479,6 +489,7 @@ export const ChatRoom = () => {
         <IconButton 
           onClick={() => fileInputRef.current?.click()}
           size="small"
+          sx={{ color: 'text.secondary' }}
         >
           <AttachFileIcon />
         </IconButton>
@@ -494,7 +505,7 @@ export const ChatRoom = () => {
           size="small"
           sx={{
             '& .MuiOutlinedInput-root': {
-              borderRadius: 2,
+              borderRadius: 3,
               bgcolor: '#f5f5f5',
               '& fieldset': {
                 borderColor: 'transparent',
@@ -516,7 +527,7 @@ export const ChatRoom = () => {
           size="small"
         >
           {isUploading ? (
-            <CircularProgress size={20} />
+            <CircularProgress size={24} />
           ) : (
             <SendIcon />
           )}
@@ -546,12 +557,21 @@ export const ChatRoom = () => {
         anchorEl={menuAnchorEl}
         open={Boolean(menuAnchorEl)}
         onClose={handleMessageMenuClose}
+        TransitionComponent={Fade}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'right',
+        }}
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'right',
+        }}
       >
         <MenuItem onClick={handleDeleteMessage}>
           <ListItemIcon>
-            <DeleteIcon fontSize="small" />
+            <DeleteIcon fontSize="small" color="error" />
           </ListItemIcon>
-          Delete Message
+          <Typography color="error">Delete Message</Typography>
         </MenuItem>
       </Menu>
     </Box>
