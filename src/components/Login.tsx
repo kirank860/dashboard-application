@@ -14,7 +14,7 @@ import { Visibility, VisibilityOff, Google, Apple, Facebook } from '@mui/icons-m
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
-export const Login = () => {
+const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -253,4 +253,6 @@ export const Login = () => {
       </Container>
     </Box>
   );
-}; 
+};
+
+export default Login; 

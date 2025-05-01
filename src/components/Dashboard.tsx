@@ -29,7 +29,7 @@ const gradientAnimation = keyframes`
   100% { background-position: 0% 50%; }
 `;
 
-export const Dashboard = () => {
+const Dashboard = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const theme = useTheme();
@@ -239,24 +239,16 @@ export const Dashboard = () => {
           height: { xs: 'calc(100vh - 56px)', sm: 'calc(100vh - 64px)', md: '100vh' },
           mt: { xs: '56px', sm: '64px', md: 0 },
           overflow: 'hidden',
-          bgcolor: 'background.default',
+          bgcolor: '#fff',
           position: 'relative',
-          '&:before': {
-            content: '""',
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: `radial-gradient(circle at top right, ${theme.palette.primary.lighter} 0%, transparent 60%)`,
-            opacity: 0.4,
-            pointerEvents: 'none',
-          },
+          display: 'flex',
+          flexDirection: 'column'
         }}
       >
-        <Toolbar sx={{ display: { xs: 'none', md: 'block' } }} />
         <ChatRoom />
       </Box>
     </Box>
   );
-}; 
+};
+
+export default Dashboard; 

@@ -1,24 +1,30 @@
 import { createContext, useContext, useEffect, ReactNode } from 'react';
-import { io, Socket } from 'socket.io-client';
+import io from 'socket.io-client';
 import { useAuth } from './AuthContext';
-import { Message } from '../types';
+import { Message, SocketContextType } from '../types';
 
-interface SocketContextType {
-  socket: Socket | null;
-  isConnected: boolean;
-}
+const SocketContext = createContext<SocketContextType>({
+  socket: null,
+  isConnected: false
+});
 
-const SocketContext = createContext<SocketContextType | undefined>(undefined);
+export const useSocket = () => {
+  const context = useContext(SocketContext);
+  if (!context) {
+    throw new Error('useSocket must be used within a SocketProvider');
+  }
+  return context;
+};
 
-const SOCKET_URL = 'http://localhost:3000'; // Replace with your Socket.IO server URL
+const SOCKET_URL = 'http://localhost:3000';
 
 export const SocketProvider = ({ children }: { children: ReactNode }) => {
   const { user } = useAuth();
   const socket = io(SOCKET_URL, {
     autoConnect: false,
     auth: {
-      userId: user?.id,
-    },
+      userId: user?.id
+    }
   });
 
   useEffect(() => {
@@ -34,12 +40,10 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
       });
 
       socket.on('new_message', (message: Message) => {
-        // We'll handle this in the ChatContext
         window.dispatchEvent(new CustomEvent('new_message', { detail: message }));
       });
 
       socket.on('message_deleted', (messageId: string) => {
-        // We'll handle this in the ChatContext
         window.dispatchEvent(new CustomEvent('message_deleted', { detail: messageId }));
       });
     }
@@ -51,19 +55,11 @@ export const SocketProvider = ({ children }: { children: ReactNode }) => {
       socket.off('message_deleted');
       socket.disconnect();
     };
-  }, [user]);
+  }, [user, socket]);
 
   return (
     <SocketContext.Provider value={{ socket, isConnected: socket.connected }}>
       {children}
     </SocketContext.Provider>
   );
-};
-
-export const useSocket = () => {
-  const context = useContext(SocketContext);
-  if (context === undefined) {
-    throw new Error('useSocket must be used within a SocketProvider');
-  }
-  return context;
 }; 

@@ -5,16 +5,32 @@ import {
   createTheme,
   ThemeOptions,
   PaletteColor,
+  CircularProgress,
 } from '@mui/material';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { Suspense, lazy } from 'react';
 
 import { AuthProvider } from './contexts/AuthContext';
 import { ChatProvider } from './contexts/ChatContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
-import { Login } from './components/Login';
-import { Dashboard } from './components/Dashboard';
 import { SocketProvider } from './contexts/SocketContext';
+
+// Lazy load components
+const Login = lazy(() => import('./components/Login'));
+const Dashboard = lazy(() => import('./components/Dashboard'));
+
+// Loading component
+const LoadingFallback = () => (
+  <div style={{ 
+    display: 'flex', 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    height: '100vh' 
+  }}>
+    <CircularProgress />
+  </div>
+);
 
 declare module '@mui/material/styles' {
   interface PaletteColor {
@@ -97,20 +113,22 @@ function App() {
         <SocketProvider>
           <ChatProvider>
             <Router>
-              <Routes>
-                <Route path="/login" element={<Login />} />
-                <Route path="/unauthorized" element={<div>Unauthorized Access</div>} />
-                <Route
-                  path="/dashboard"
-                  element={
-                    <ProtectedRoute>
-                      <Dashboard />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                <Route path="*" element={<Navigate to="/dashboard" replace />} />
-              </Routes>
+              <Suspense fallback={<LoadingFallback />}>
+                <Routes>
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/unauthorized" element={<div>Unauthorized Access</div>} />
+                  <Route
+                    path="/dashboard"
+                    element={
+                      <ProtectedRoute>
+                        <Dashboard />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                  <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                </Routes>
+              </Suspense>
             </Router>
             <ToastContainer
               position="bottom-right"

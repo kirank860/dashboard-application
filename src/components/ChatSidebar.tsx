@@ -1,243 +1,127 @@
-import { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   List,
   ListItemButton,
+  ListItemAvatar,
   ListItemText,
+  Avatar,
   Typography,
   Button,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   IconButton,
-  Badge,
-  Avatar,
-  Tooltip,
   Divider,
 } from '@mui/material';
-import {
-  Add as AddIcon,
-  Group as GroupIcon,
-  Person as PersonIcon,
-  Delete as DeleteIcon,
-} from '@mui/icons-material';
+import { Add as AddIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import { useChat } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
+import { Room } from '../types';
 
 export const ChatSidebar = () => {
-  const [isCreateRoomOpen, setIsCreateRoomOpen] = useState(false);
-  const [newRoomName, setNewRoomName] = useState('');
-  const [newRoomType, setNewRoomType] = useState<'group' | 'private'>('group');
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [roomToDelete, setRoomToDelete] = useState(null);
-  const { rooms, currentRoom, joinRoom, createRoom, deleteRoom, setRooms } = useChat();
   const { user } = useAuth();
-
-  // Persist rooms in localStorage
-  useEffect(() => {
-    localStorage.setItem('chatRooms', JSON.stringify(rooms));
-  }, [rooms]);
+  const { currentRoom, setCurrentRoom } = useChat();
+  const [rooms, setRooms] = useState<Room[]>([]);
 
   useEffect(() => {
-    const storedRooms = localStorage.getItem('chatRooms');
-    if (storedRooms) {
-      setRooms(JSON.parse(storedRooms));
+    // Initialize with default rooms
+    const defaultRooms: Room[] = [
+      {
+        id: 'general',
+        name: 'General',
+        type: 'group',
+        participants: [
+          { id: 'admin', username: 'Admin' },
+          { id: user?.id || 'user', username: user?.username || 'User' }
+        ]
+      },
+      {
+        id: 'private-1',
+        name: 'Private Chat',
+        type: 'private',
+        participants: [
+          { id: user?.id || 'user', username: user?.username || 'User' },
+          { id: 'other-user', username: 'John Doe' }
+        ]
+      }
+    ];
+    setRooms(defaultRooms);
+
+    // Set initial room if none selected
+    if (!currentRoom) {
+      setCurrentRoom(defaultRooms[0]);
     }
-  }, [setRooms]);
+  }, [user, setCurrentRoom, currentRoom]);
 
-  const handleCreateRoom = () => {
-    if (newRoomName.trim() && user) {
-      createRoom(newRoomName, newRoomType, newRoomType === 'private' ? [user.id] : ['all']);
-      setNewRoomName('');
-      setIsCreateRoomOpen(false);
-    }
-  };
-
-  const handleDeleteClick = (room) => {
-    setRoomToDelete(room);
-    setDeleteDialogOpen(true);
-  };
-
-  const handleDeleteConfirm = () => {
-    if (roomToDelete) {
-      deleteRoom(roomToDelete.id);
-      setDeleteDialogOpen(false);
-      setRoomToDelete(null);
-    }
-  };
-
-  const handleDeleteCancel = () => {
-    setDeleteDialogOpen(false);
-    setRoomToDelete(null);
+  const handleRoomSelect = (room: Room) => {
+    setCurrentRoom(room);
   };
 
   return (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <Box sx={{ p: 2 }}>
+    <Box sx={{ width: '100%', height: '100%', bgcolor: '#fff' }}>
+      <Box
+        sx={{
+          p: 2,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between'
+        }}
+      >
+        <Typography variant="h6" sx={{ fontWeight: 600 }}>
+          Chats
+        </Typography>
         <Button
           variant="contained"
-          fullWidth
           startIcon={<AddIcon />}
-          onClick={() => setIsCreateRoomOpen(true)}
+          size="small"
           sx={{
             borderRadius: 2,
-            py: 1,
-            bgcolor: 'primary.main',
-            '&:hover': {
-              bgcolor: 'primary.dark',
-            },
+            textTransform: 'none'
           }}
         >
-          New Chat Room
+          New Chat
         </Button>
       </Box>
       <Divider />
-      <List
-        sx={{
-          flex: 1,
-          overflow: 'auto',
-          '& .MuiListItemButton-root': {
-            borderRadius: 1,
-            mx: 1,
-            mb: 0.5,
-          },
-        }}
-      >
+      <List sx={{ p: 2 }}>
         {rooms.map((room) => (
-          <Box key={room.id} sx={{ display: 'flex', alignItems: 'center' }}>
-            <ListItemButton
-              selected={currentRoom?.id === room.id}
-              onClick={() => joinRoom(room.id)}
-              sx={{
-                flex: 1,
-                '&.Mui-selected': {
-                  bgcolor: 'primary.lighter',
-                  '&:hover': {
-                    bgcolor: 'primary.light',
-                  },
-                },
-              }}
-            >
+          <ListItemButton
+            key={room.id}
+            selected={currentRoom?.id === room.id}
+            onClick={() => handleRoomSelect(room)}
+            sx={{
+              borderRadius: 2,
+              mb: 1,
+              '&.Mui-selected': {
+                bgcolor: 'primary.lighter',
+                '&:hover': {
+                  bgcolor: 'primary.lighter'
+                }
+              }
+            }}
+          >
+            <ListItemAvatar>
               <Avatar
                 sx={{
-                  mr: 2,
-                  bgcolor: room.type === 'group' ? 'secondary.main' : 'primary.main',
+                  bgcolor: room.type === 'group' ? 'secondary.main' : 'primary.main'
                 }}
               >
-                {room.type === 'group' ? <GroupIcon /> : <PersonIcon />}
+                {room.name.charAt(0).toUpperCase()}
               </Avatar>
-              <ListItemText
-                primary={
-                  <Typography
-                    variant="body1"
-                    sx={{
-                      fontWeight: currentRoom?.id === room.id ? 600 : 400,
-                      color: 'text.primary',
-                    }}
-                  >
-                    {room.name}
-                  </Typography>
-                }
-                secondary={
-                  <Typography variant="body2" color="text.secondary">
-                    {room.type === 'group' ? 'Group Chat' : 'Private Chat'}
-                  </Typography>
-                }
-              />
-            </ListItemButton>
-            <Tooltip title="Delete chat room">
-              <IconButton
-                color="error"
-                onClick={() => handleDeleteClick(room)}
-                sx={{ ml: 1 }}
-              >
-                <DeleteIcon />
-              </IconButton>
-            </Tooltip>
-          </Box>
+            </ListItemAvatar>
+            <ListItemText
+              primary={room.name}
+              secondary={room.type === 'group' ? 'Group Chat' : 'Private Chat'}
+              primaryTypographyProps={{
+                fontWeight: 600,
+                color: 'text.primary'
+              }}
+              secondaryTypographyProps={{
+                color: 'text.secondary',
+                fontSize: '0.875rem'
+              }}
+            />
+          </ListItemButton>
         ))}
       </List>
-
-      {/* Delete Confirmation Dialog */}
-      <Dialog
-        open={deleteDialogOpen}
-        onClose={handleDeleteCancel}
-        maxWidth="xs"
-        fullWidth
-      >
-        <DialogTitle>Delete Chat Room</DialogTitle>
-        <DialogContent>
-          Are you sure you want to delete the chat?
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleDeleteCancel} color="inherit">
-            Cancel
-          </Button>
-          <Button onClick={handleDeleteConfirm} color="error" variant="contained">
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog
-        open={isCreateRoomOpen}
-        onClose={() => setIsCreateRoomOpen(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>Create New Chat Room</DialogTitle>
-        <DialogContent sx={{ pb: 1 }}>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Room Name"
-            type="text"
-            fullWidth
-            value={newRoomName}
-            onChange={(e) => setNewRoomName(e.target.value)}
-            sx={{ mb: 2 }}
-          />
-          <FormControl fullWidth>
-            <InputLabel>Room Type</InputLabel>
-            <Select
-              value={newRoomType}
-              label="Room Type"
-              onChange={(e) => setNewRoomType(e.target.value as 'group' | 'private')}
-            >
-              <MenuItem value="group">
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <GroupIcon />
-                  Group Chat
-                </Box>
-              </MenuItem>
-              <MenuItem value="private">
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <PersonIcon />
-                  Private Chat
-                </Box>
-              </MenuItem>
-            </Select>
-          </FormControl>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setIsCreateRoomOpen(false)} color="inherit">
-            Cancel
-          </Button>
-          <Button
-            onClick={handleCreateRoom}
-            disabled={!newRoomName.trim()}
-            variant="contained"
-          >
-            Create
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 }; 

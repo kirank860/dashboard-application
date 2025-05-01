@@ -18,6 +18,8 @@ import {
   Avatar,
   Popper,
   ClickAwayListener,
+  LinearProgress,
+  ListItemIcon,
 } from '@mui/material';
 import {
   Send as SendIcon,
@@ -32,9 +34,12 @@ import {
 } from '@mui/icons-material';
 import { useChat } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
-import { Message } from '../types';
+import { Message, Room } from '../types';
 import { keyframes } from '@mui/system';
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
+import FilePreview from './FilePreview';
+import NotificationService from '../services/NotificationService';
+import { useSocket } from '../contexts/SocketContext';
 
 const messageAnimation = keyframes`
   from {
@@ -53,6 +58,11 @@ const bubbleAnimation = keyframes`
   100% { transform: scale(1); opacity: 1; }
 `;
 
+interface MessageStatus {
+  messageId: string;
+  status: 'sent' | 'delivered' | 'read';
+}
+
 export const ChatRoom = () => {
   const [message, setMessage] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -67,6 +77,8 @@ export const ChatRoom = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
+  const { socket } = useSocket();
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -76,21 +88,75 @@ export const ChatRoom = () => {
     scrollToBottom();
   }, [messages]);
 
+  useEffect(() => {
+    NotificationService.requestPermission();
+  }, []);
+
+  useEffect(() => {
+    if (socket) {
+      socket.on('message_status', ({ messageId, status }: MessageStatus) => {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === messageId ? { ...msg, status } : msg
+          )
+        );
+      });
+
+      socket.on('new_message', (message: Message) => {
+        if (message.senderId !== user?.id) {
+          NotificationService.notify(message, message.senderName || 'User');
+        }
+      });
+    }
+  }, [socket, user?.id]);
+
   const handleSend = async () => {
     if (message.trim() || file) {
       if (file) {
         setIsUploading(true);
         try {
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+          // Simulate file upload with progress
+          for (let i = 0; i <= 100; i += 10) {
+            setUploadProgress(i);
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          }
+          
           const fileUrl = URL.createObjectURL(file);
-          sendMessage(file.name, file.type.startsWith('image/') ? 'image' : 'file', fileUrl);
+          const newMessage: Message = {
+            id: Date.now().toString(),
+            content: file.name,
+            senderId: user?.id || '',
+            roomId: currentRoom?.id || '',
+            timestamp: new Date(),
+            type: file.type.startsWith('image/') ? 'image' : 'file',
+            fileUrl,
+            status: 'sent',
+            senderName: user?.username
+          };
+          
+          socket?.emit('send_message', newMessage);
+          setMessages((prev) => [...prev, newMessage]);
           setFile(null);
+          setUploadProgress(0);
         } finally {
           setIsUploading(false);
         }
       }
+      
       if (message.trim()) {
-        sendMessage(message, 'text');
+        const newMessage: Message = {
+          id: Date.now().toString(),
+          content: message.trim(),
+          senderId: user?.id || '',
+          roomId: currentRoom?.id || '',
+          timestamp: new Date(),
+          type: 'text',
+          status: 'sent',
+          senderName: user?.username
+        };
+        
+        socket?.emit('send_message', newMessage);
+        setMessages((prev) => [...prev, newMessage]);
         setMessage('');
       }
     }
@@ -130,509 +196,362 @@ export const ChatRoom = () => {
   return (
     <Box 
       sx={{ 
-        height: { xs: '100%', md: 'calc(100vh - 100px)' },
+        height: { xs: '100vh', sm: 'calc(100vh - 100px)' },
+        maxWidth: { xs: '100%', sm: '900px' },
+        width: '100%',
+        margin: { xs: 0, sm: '100px auto 0' },
         display: 'flex', 
         flexDirection: 'column',
-        p: { xs: 1, sm: 2 },
-        gap: { xs: 1, sm: 2 },
-        position: 'relative',
+        bgcolor: '#fff',
+        borderRadius: { xs: 0, sm: 2 },
         overflow: 'hidden',
-        bgcolor: 'grey.50',
-        mt: { xs: 0, md: '100px' },
+        boxShadow: { xs: 'none', sm: '0 2px 12px rgba(0, 0, 0, 0.1)' },
+        position: { xs: 'fixed', sm: 'relative' },
+        top: { xs: 0, sm: 'auto' },
+        left: { xs: 0, sm: 'auto' },
+        right: { xs: 0, sm: 'auto' },
+        bottom: { xs: 0, sm: 'auto' },
+        zIndex: { xs: 1200, sm: 1 }
       }}
     >
-      <Paper
-        elevation={0}
+      {/* Header */}
+      <Box
         sx={{
-          p: { xs: 2, sm: 3 },
-          bgcolor: 'background.paper',
-          borderRadius: 2,
-          boxShadow: theme.shadows[2],
+          p: { xs: 1.5, sm: 2 },
+          borderBottom: '1px solid',
+          borderColor: 'divider',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          position: 'relative',
-          overflow: 'hidden',
-          backdropFilter: 'blur(20px)',
-          backgroundColor: 'rgba(255, 255, 255, 0.9)',
-          '&:before': {
-            content: '""',
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '4px',
-            height: '100%',
-            background: `linear-gradient(to bottom, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
-          },
+          bgcolor: 'primary.main',
+          color: 'white',
+          position: 'sticky',
+          top: 0,
+          zIndex: { xs: 1210, sm: 2 },
+          width: '100%',
+          minHeight: { xs: '60px', sm: '70px' }
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <Box sx={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: { xs: 1.5, sm: 2 },
+          flex: 1,
+          minWidth: 0
+        }}>
           <Avatar
             sx={{
-              bgcolor: currentRoom?.type === 'group' ? 'secondary.main' : 'primary.main',
-              width: 40,
-              height: 40,
+              bgcolor: 'white',
+              color: 'primary.main',
+              width: { xs: 35, sm: 40 },
+              height: { xs: 35, sm: 40 },
+              flexShrink: 0
             }}
           >
             {currentRoom?.name?.charAt(0).toUpperCase()}
           </Avatar>
-          <Box>
-            <Typography
-              variant="h6"
-              sx={{
-                fontWeight: 700,
-                fontSize: { xs: '1.1rem', sm: '1.25rem' },
-                background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
-                backgroundClip: 'text',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
+          <Box sx={{ 
+            minWidth: 0,
+            flex: 1
+          }}>
+            <Typography 
+              variant="h6" 
+              sx={{ 
+                fontWeight: 600,
+                fontSize: { xs: '1.125rem', sm: '1.25rem' },
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                lineHeight: { xs: 1.2, sm: 1.4 },
+                mb: 0.5,
+                color: 'white'
               }}
             >
               {currentRoom?.name || 'Select a room'}
             </Typography>
-            <Typography
-              variant="body2"
+            <Typography 
+              variant="body2" 
               sx={{
-                color: 'text.secondary',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 0.5,
-                fontSize: { xs: '0.8rem', sm: '0.875rem' },
+                fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                color: 'rgba(255, 255, 255, 0.8)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
               }}
             >
-              {currentRoom?.type === 'group' ? 'Group Chat' : 'Private Chat'}
+              {currentRoom?.type === 'group' 
+                ? `Group Chat • ${currentRoom.participants?.length || 0} participants`
+                : 'Private Chat'}
             </Typography>
           </Box>
         </Box>
-      </Paper>
+        <Avatar 
+          sx={{ 
+            width: { xs: 35, sm: 40 }, 
+            height: { xs: 35, sm: 40 },
+            bgcolor: 'white',
+            color: 'primary.main',
+            ml: { xs: 1, sm: 2 },
+            flexShrink: 0
+          }}
+        >
+          {user?.username?.charAt(0).toUpperCase()}
+        </Avatar>
+      </Box>
 
+      {/* Messages Container */}
       <Box
         sx={{
           flexGrow: 1,
           overflow: 'auto',
-          px: { xs: 1, sm: 2 },
-          mx: -1,
-          scrollBehavior: 'smooth',
-          mb: { xs: 2, sm: 3 },
-          maxHeight: { xs: '100%', md: 'calc(100vh - 300px)' },
+          p: { xs: 1, sm: 2 },
+          display: 'flex',
+          flexDirection: 'column',
           '&::-webkit-scrollbar': {
-            width: '8px',
+            width: '6px',
           },
           '&::-webkit-scrollbar-track': {
             background: 'transparent',
           },
           '&::-webkit-scrollbar-thumb': {
-            background: 'rgba(0,0,0,0.1)',
-            borderRadius: '4px',
+            background: '#E0E0E0',
+            borderRadius: '3px',
           },
         }}
       >
-        <List sx={{ py: 0 }}>
-          {roomMessages.map((msg, index) => {
-            // Consider all messages as sent by the current user for now
-            const isSentByMe = true; // This will make all messages appear on the right
-
-            return (
-              <Zoom in key={msg.id} style={{ transitionDelay: `${index * 50}ms` }}>
-                <ListItem
+        <List sx={{ width: '100%', p: 0 }}>
+          {roomMessages.map((msg) => (
+            <ListItem
+              key={msg.id}
+              sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: msg.senderId === user?.id ? 'flex-end' : 'flex-start',
+                p: { xs: 0.25, sm: 0.5 },
+                maxWidth: '100%'
+              }}
+            >
+              <Box
+                sx={{
+                  maxWidth: { xs: '90%', sm: '70%' },
+                  position: 'relative',
+                }}
+              >
+                <Paper
+                  elevation={0}
                   sx={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'flex-end', // Always align to the right
-                    justifyContent: 'flex-end',
-                    py: { xs: 0.5, sm: 1 },
-                    px: 2,
-                    width: '100%',
-                    animation: `${messageAnimation} 0.3s ease-out`,
-                    position: 'relative',
-                    '&:hover .message-options': {
-                      opacity: 1,
-                    },
+                    p: { xs: 1, sm: 1.5 },
+                    bgcolor: msg.senderId === user?.id ? 'primary.main' : '#f5f5f5',
+                    color: msg.senderId === user?.id ? '#fff' : 'inherit',
+                    borderRadius: msg.senderId === user?.id ? '20px 20px 4px 20px' : '20px 20px 20px 4px',
                   }}
                 >
-                  <Box
-                    sx={{
-                      maxWidth: { xs: '90%', sm: '75%', md: '65%' },
-                      bgcolor: '#1976d2', // Always use blue background
-                      color: 'white', // Always use white text
-                      borderRadius: '20px 20px 4px 20px',
-                      p: { xs: 1.5, sm: 2 },
-                      position: 'relative',
-                      boxShadow: theme.shadows[1],
-                      transition: 'all 0.2s',
-                      animation: `${bubbleAnimation} 0.3s ease-out`,
-                      marginLeft: 'auto', // Push to the right
-                      marginRight: '0',
-                      '&:hover': {
-                        transform: 'translateY(-2px)',
-                        boxShadow: theme.shadows[3],
-                      },
-                    }}
-                  >
-                    {msg.type === 'text' ? (
-                      <Typography 
-                        variant="body1" 
-                        sx={{ 
-                          wordBreak: 'break-word',
-                          fontSize: { xs: '0.95rem', sm: '1.1rem' },
-                          fontWeight: 400,
-                          letterSpacing: '0.2px',
-                          lineHeight: 1.5,
-                        }}
-                      >
-                        {msg.content}
-                      </Typography>
-                    ) : msg.type === 'image' ? (
-                      <Box sx={{ maxWidth: '100%' }}>
-                        <Box
-                          component="img"
-                          src={msg.fileUrl}
-                          alt={msg.content}
-                          sx={{
-                            maxWidth: '100%',
-                            maxHeight: { xs: 200, sm: 300 },
-                            borderRadius: 1,
-                            cursor: 'pointer',
-                            transition: 'transform 0.2s',
-                            '&:hover': {
-                              transform: 'scale(1.02)',
-                            },
-                          }}
-                          onClick={() => window.open(msg.fileUrl, '_blank')}
-                        />
-                        <Typography 
-                          variant="caption" 
-                          sx={{ 
-                            mt: 1, 
-                            display: 'block',
-                            fontSize: { xs: '0.7rem', sm: '0.75rem' },
-                          }}
-                        >
-                          {msg.content}
-                        </Typography>
-                      </Box>
-                    ) : (
-                      <Box
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 1,
-                        }}
-                      >
-                        <FileIcon sx={{ fontSize: { xs: 20, sm: 24 } }} />
-                        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                          <Typography 
-                            variant="body2" 
-                            noWrap
-                            sx={{
-                              fontSize: { xs: '0.8rem', sm: '0.875rem' },
-                            }}
-                          >
-                            {msg.content}
-                          </Typography>
-                          <Typography
-                            component="a"
-                            href={msg.fileUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            variant="caption"
-                            sx={{
-                              color: 'inherit',
-                              textDecoration: 'none',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 0.5,
-                              mt: 0.5,
-                              fontSize: { xs: '0.7rem', sm: '0.75rem' },
-                              '&:hover': {
-                                textDecoration: 'underline',
-                              },
-                            }}
-                          >
-                            Download
-                          </Typography>
-                        </Box>
-                      </Box>
-                    )}
+                  {msg.type === 'text' && (
+                    <Typography variant="body1">{msg.content}</Typography>
+                  )}
+                  
+                  {msg.type === 'image' && (
+                    <Box
+                      component="img"
+                      src={msg.fileUrl}
+                      alt="Image"
+                      sx={{
+                        maxWidth: '100%',
+                        borderRadius: 1,
+                        cursor: 'pointer',
+                      }}
+                      onClick={() => window.open(msg.fileUrl, '_blank')}
+                    />
+                  )}
+                  
+                  {msg.type === 'file' && (
                     <Box
                       sx={{
                         display: 'flex',
                         alignItems: 'center',
-                        justifyContent: 'flex-end',
-                        mt: 0.5,
                         gap: 1,
+                        cursor: 'pointer',
                       }}
+                      onClick={() => window.open(msg.fileUrl, '_blank')}
                     >
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          opacity: 0.7,
-                          fontSize: { xs: '0.65rem', sm: '0.75rem' },
-                          color: 'inherit',
-                        }}
-                      >
-                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </Typography>
-                      {isSentByMe && (
-                        <>
-                          <DoneAllIcon sx={{ 
-                            fontSize: '14px', 
-                            opacity: 0.7,
-                            color: 'inherit'
-                          }} />
-                          <IconButton
-                            className="message-options"
-                            size="small"
-                            onClick={(e) => handleMessageMenuOpen(e, msg.id)}
-                            sx={{
-                              padding: '2px',
-                              opacity: 0,
-                              transition: 'all 0.2s',
-                              color: 'inherit',
-                              '&:hover': {
-                                bgcolor: 'rgba(255,255,255,0.1)',
-                                transform: 'scale(1.1)',
-                              },
-                            }}
-                          >
-                            <MoreVertIcon sx={{ fontSize: '16px' }} />
-                          </IconButton>
-                        </>
-                      )}
+                      <FileIcon fontSize="small" />
+                      <Typography variant="body2">{msg.content}</Typography>
                     </Box>
+                  )}
+                  
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 0.5,
+                      mt: 0.5,
+                      opacity: 0.7,
+                      fontSize: '0.75rem',
+                    }}
+                  >
+                    <Typography variant="caption">
+                      {new Date(msg.timestamp).toLocaleTimeString([], { 
+                        hour: '2-digit', 
+                        minute: '2-digit' 
+                      })}
+                    </Typography>
+                    {msg.senderId === user?.id && (
+                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                        {msg.status === 'sent' && <DoneIcon sx={{ fontSize: 12 }} />}
+                        {msg.status === 'delivered' && <DoneAllIcon sx={{ fontSize: 12 }} />}
+                        {msg.status === 'read' && (
+                          <DoneAllIcon sx={{ fontSize: 12, color: '#34B7F1' }} />
+                        )}
+                      </Box>
+                    )}
                   </Box>
-                </ListItem>
-              </Zoom>
-            );
-          })}
+                </Paper>
+
+                <IconButton
+                  size="small"
+                  onClick={(e) => handleMessageMenuOpen(e, msg.id)}
+                  sx={{
+                    position: 'absolute',
+                    right: msg.senderId === user?.id ? -30 : 'auto',
+                    left: msg.senderId === user?.id ? 'auto' : -30,
+                    top: 0,
+                    opacity: 0,
+                    '&:hover': { opacity: 1 },
+                  }}
+                >
+                  <MoreVertIcon fontSize="small" />
+                </IconButton>
+              </Box>
+            </ListItem>
+          ))}
+          <div ref={messagesEndRef} />
         </List>
-        <div ref={messagesEndRef} />
       </Box>
 
-      <Paper
-        elevation={3}
+      {/* File Preview */}
+      {file && (
+        <Box sx={{ px: 2, pb: 2, width: '100%' }}>
+          <FilePreview file={file} onRemove={() => setFile(null)} />
+          {isUploading && (
+            <Box sx={{ width: '100%', mt: 1 }}>
+              <LinearProgress variant="determinate" value={uploadProgress} />
+            </Box>
+          )}
+        </Box>
+      )}
+
+      {/* Message Input */}
+      <Box
+        component="form"
         sx={{
-          p: { xs: 1.5, sm: 2 },
-          bgcolor: 'background.paper',
-          borderRadius: 3,
-          boxShadow: theme.shadows[3],
-          transition: 'all 0.2s',
+          p: { xs: 1, sm: 2 },
+          display: 'flex',
+          gap: { xs: 0.5, sm: 1 },
+          alignItems: 'flex-end',
+          bgcolor: '#fff',
+          borderTop: '1px solid',
+          borderColor: 'divider',
           position: 'sticky',
           bottom: 0,
-          left: 0,
-          right: 0,
-          zIndex: 10,
-          mt: 'auto',
-          backdropFilter: 'blur(20px)',
-          backgroundColor: 'rgba(255, 255, 255, 0.9)',
-          '&:focus-within': {
-            transform: 'translateY(-2px)',
-            boxShadow: theme.shadows[6],
-          },
+          width: '100%',
+          zIndex: 1
+        }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleSend();
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: { xs: 0.5, sm: 1 } }}>
-          <input
-            type="file"
-            ref={fileInputRef}
-            style={{ display: 'none' }}
-            onChange={handleFileSelect}
-          />
-          <Tooltip title="Add emoji">
-            <IconButton
-              ref={emojiButtonRef}
-              color="primary"
-              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-              sx={{
-                mb: { xs: 0.5, sm: 1 },
-                p: { xs: 1, sm: 1.5 },
-                transition: 'transform 0.2s',
-                '&:hover': {
-                  transform: 'scale(1.1)',
-                },
-              }}
-            >
-              <EmojiIcon sx={{ fontSize: { xs: 20, sm: 24 } }} />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Attach file">
-            <span>
-              <IconButton
-                color="primary"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={!currentRoom || isUploading}
-                sx={{
-                  mb: { xs: 0.5, sm: 1 },
-                  p: { xs: 1, sm: 1.5 },
-                  transition: 'transform 0.2s',
-                  '&:hover': {
-                    transform: 'scale(1.1)',
-                  },
-                }}
-              >
-                <AttachFileIcon sx={{ fontSize: { xs: 20, sm: 24 } }} />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <TextField
-            fullWidth
-            multiline
-            maxRows={4}
-            size={isMobile ? "small" : "medium"}
-            placeholder={currentRoom ? 'Type a message...' : 'Select a room to start chatting'}
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            disabled={!currentRoom || isUploading}
-            onKeyPress={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-            sx={{
-              '& .MuiOutlinedInput-root': {
-                borderRadius: 2,
-                transition: 'all 0.2s',
-                fontSize: { xs: '0.875rem', sm: '1rem' },
-                backgroundColor: 'background.paper',
-                '& fieldset': {
-                  borderWidth: '1px',
-                  borderColor: 'divider',
-                },
-                '&:hover fieldset': {
-                  borderColor: 'primary.main',
-                },
-                '&.Mui-focused': {
-                  boxShadow: `0 0 0 2px ${theme.palette.primary.main}20`,
-                },
+        <input
+          type="file"
+          ref={fileInputRef}
+          style={{ display: 'none' }}
+          onChange={handleFileSelect}
+        />
+        
+        <IconButton
+          onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+          ref={emojiButtonRef}
+          size="small"
+        >
+          <EmojiIcon />
+        </IconButton>
+        
+        <IconButton 
+          onClick={() => fileInputRef.current?.click()}
+          size="small"
+        >
+          <AttachFileIcon />
+        </IconButton>
+        
+        <TextField
+          fullWidth
+          multiline
+          maxRows={4}
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder="Type a message..."
+          variant="outlined"
+          size="small"
+          sx={{
+            '& .MuiOutlinedInput-root': {
+              borderRadius: 2,
+              bgcolor: '#f5f5f5',
+              '& fieldset': {
+                borderColor: 'transparent',
               },
-            }}
-          />
-          <Tooltip title="Send message">
-            <span>
-              <IconButton
-                color="primary"
-                onClick={handleSend}
-                disabled={!currentRoom || (!message.trim() && !file) || isUploading}
-                sx={{
-                  mb: { xs: 0.5, sm: 1 },
-                  p: { xs: 1, sm: 1.5 },
-                  background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
-                  color: 'white',
-                  transition: 'all 0.2s',
-                  '&:hover': {
-                    background: `linear-gradient(135deg, ${theme.palette.primary.dark}, ${theme.palette.primary.main})`,
-                    transform: 'scale(1.1)',
-                  },
-                  '&.Mui-disabled': {
-                    bgcolor: 'action.disabledBackground',
-                    color: 'action.disabled',
-                  },
-                }}
-              >
-                {isUploading ? (
-                  <CircularProgress size={isMobile ? 20 : 24} color="inherit" />
-                ) : (
-                  <SendIcon sx={{ fontSize: { xs: 20, sm: 24 } }} />
-                )}
-              </IconButton>
-            </span>
-          </Tooltip>
-        </Box>
-        {showEmojiPicker && (
-          <ClickAwayListener onClickAway={() => setShowEmojiPicker(false)}>
-            <Box
-              sx={{
-                position: 'absolute',
-                bottom: '100%',
-                left: 0,
-                mb: 1,
-                zIndex: 100,
-                '& .EmojiPickerReact': {
-                  '--epr-bg-color': 'rgba(255, 255, 255, 0.95)',
-                  '--epr-category-label-bg-color': 'rgba(255, 255, 255, 0.95)',
-                  '--epr-hover-bg-color': 'rgba(0, 0, 0, 0.05)',
-                  borderColor: 'divider',
-                  boxShadow: theme.shadows[3],
-                },
-              }}
-            >
-              <EmojiPicker
-                onEmojiClick={handleEmojiClick}
-                autoFocusSearch={false}
-                width={320}
-                height={400}
-              />
-            </Box>
-          </ClickAwayListener>
-        )}
-        {file && (
-          <Fade in>
-            <Box
-              sx={{
-                mt: { xs: 1, sm: 1.5 },
-                p: { xs: 1, sm: 1.5 },
-                bgcolor: 'action.hover',
-                borderRadius: 2,
-                display: 'flex',
-                alignItems: 'center',
-                gap: { xs: 0.5, sm: 1 },
-                animation: `${messageAnimation} 0.3s ease-out`,
-              }}
-            >
-              {file.type.startsWith('image/') ? (
-                <ImageIcon sx={{ fontSize: { xs: 20, sm: 24 } }} />
-              ) : (
-                <FileIcon sx={{ fontSize: { xs: 20, sm: 24 } }} />
-              )}
-              <Typography 
-                variant="body2" 
-                noWrap 
-                sx={{ 
-                  flex: 1,
-                  fontSize: { xs: '0.8rem', sm: '0.875rem' },
-                }}
-              >
-                {file.name}
-              </Typography>
-              <IconButton
-                size="small"
-                onClick={() => setFile(null)}
-                sx={{
-                  p: { xs: 0.5, sm: 1 },
-                  '&:hover': {
-                    color: 'error.main',
-                  },
-                }}
-              >
-                ✕
-              </IconButton>
-            </Box>
+              '&:hover fieldset': {
+                borderColor: 'transparent',
+              },
+              '&.Mui-focused fieldset': {
+                borderColor: 'primary.main',
+              },
+            },
+          }}
+        />
+        
+        <IconButton
+          color="primary"
+          disabled={isUploading || (!message.trim() && !file)}
+          type="submit"
+          size="small"
+        >
+          {isUploading ? (
+            <CircularProgress size={20} />
+          ) : (
+            <SendIcon />
+          )}
+        </IconButton>
+      </Box>
+
+      {/* Emoji Picker */}
+      <Popper
+        open={showEmojiPicker}
+        anchorEl={emojiButtonRef.current}
+        placement="top-start"
+        transition
+      >
+        {({ TransitionProps }) => (
+          <Fade {...TransitionProps}>
+            <ClickAwayListener onClickAway={() => setShowEmojiPicker(false)}>
+              <Box sx={{ bgcolor: '#fff', boxShadow: 2, borderRadius: 1 }}>
+                <EmojiPicker onEmojiClick={handleEmojiClick} />
+              </Box>
+            </ClickAwayListener>
           </Fade>
         )}
-      </Paper>
+      </Popper>
+
+      {/* Message Actions Menu */}
       <Menu
         anchorEl={menuAnchorEl}
         open={Boolean(menuAnchorEl)}
         onClose={handleMessageMenuClose}
-        transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-        anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
-        PaperProps={{
-          elevation: 3,
-          sx: {
-            mt: 1,
-            minWidth: 120,
-            borderRadius: 2,
-            '& .MuiMenuItem-root': {
-              fontSize: '0.875rem',
-              py: 1,
-            },
-          },
-        }}
       >
-        <MenuItem onClick={handleDeleteMessage} sx={{ color: 'error.main' }}>
-          <DeleteIcon fontSize="small" sx={{ mr: 1 }} />
-          Unsend
+        <MenuItem onClick={handleDeleteMessage}>
+          <ListItemIcon>
+            <DeleteIcon fontSize="small" />
+          </ListItemIcon>
+          Delete Message
         </MenuItem>
       </Menu>
     </Box>
